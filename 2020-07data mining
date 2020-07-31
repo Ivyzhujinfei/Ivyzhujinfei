@@ -1,0 +1,161 @@
+#Python爬虫部分
+import requests
+import re
+from lxml import etree
+import pandas as pd
+import time
+import random
+
+#设置浏览器的头信息
+headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/56.0.2924.87 Safari/537.36'}
+#首先访问一个页面
+url = 'https://www.anjuke.com/fangjia/cs2018/'
+#对页面发起get请求
+dfs = requests.get(url,headers = headers).text
+html = etree.HTML(dfs)
+#提取每个区以及每个区的链接
+areas = html.xpath('//span[@class="elem-l"]//a/text()')[1:]
+urls = html.xpath('//span[@class="elem-l"]//a/@href')[1:]
+
+
+ls1 = []
+ls2 = []
+ls3 = []
+ls4 = []
+#循环爬取每一年的数据
+for year in list(range(2014,2021)):
+    print(year)
+    #爬取每个区的数据
+    for area,url in zip(areas,urls):
+        print(area)
+        #访问每个区每年的数据
+        url_now = url.replace('2018',str(year))
+        try:
+            data = requests.get(url_now,headers = headers).text
+        except Exception:
+            time.sleep(3)
+            data = requests.get(url_now,headers = headers).text
+        html = etree.HTML(data)
+        #提取里面的价格信息和年月信息
+        price = html.xpath('//div[@class="fjlist-box boxstyle2"][1]/ul/li/a/span/text()')
+        month = html.xpath('//div[@class="fjlist-box boxstyle2"][1]/ul/li/a/b/text()')
+        area_ = [area] * len(price)
+        year_ = [year] * len(price)
+        if len(price) == 0:
+            break
+        #存储这些信息
+        ls1.extend(area_)
+        ls2.extend(year_)
+        ls3.extend(month)
+        ls4.extend(price)
+        time.sleep(random.uniform(1,3))
+
+#保存到dataframe表格数据中     
+result = pd.DataFrame()
+result['地区'] = ls1
+result['年份'] = ls2
+result['月份'] = ls3
+result['房价'] = ls4 
+#存储为excel数据
+result.to_excel('D:/data.xlsx',index = None)
+
+# In[]
+dfs = pd.read_excel('D:/data.xlsx')
+#提取年份数据
+dfs['年月'] = dfs['月份'].map(lambda x:x.split('月')[0].replace('年','-'))
+#提取房价数值型数据
+dfs['房价'] = dfs['房价'].map(lambda x:float(x.split('元')[0])) 
+df = dfs[['地区','年月','房价']]
+df.to_excel('D:/datas.xlsx',index = None)
+#透视表操作
+dff = df.pivot_table(index='年月', columns='地区', values='房价')
+dff.to_excel('D:/datas1.xlsx')# -
+
+#R 预测部分
+#读取数据及前期处理
+getwd()
+setwd("D:/2020/class/datamining/endterm")
+data<-read.csv("./datas1.csv", header = F)
+names(data)=c("time", "天心","宁乡","岳麓","开福","望城",
+              "浏阳","芙蓉","长沙","雨花")
+data[1,1]<-"2014/1/1"
+datayl<-data[,4]
+
+
+#时间序列分析
+#数据
+datayl<-ts(datayl,start=c(2014,1),end=c(2020,7),frequency=12)
+#划分训练集和测试集
+data1<-datayl[1:67]
+data2<-datayl[68:79]
+data1<-ts(data1,start=c(2014,1),frequency=12)
+
+#作图
+plot(datayl,type="o",pch=4,lwd=2,col=3,main="2014-2020岳麓房价",
+     xlab="年月",ylab="房价",xlim=c(2014,2020))
+plot(data1,type="o",pch=4,lwd=2,col=3,main="2014-2019岳麓房价训练集",
+     xlab="年月",ylab="房价",xlim=c(2014,2020))
+#lwd线宽,lwd=k默认宽度的k倍
+#col=1黑色,2红色,3绿色,4蓝色,main标题,type="o"线穿过点,h悬垂线,s阶梯线,b点连线
+#pch观察点的参数,17实心三角,15实心方块
+#lty线的类型,1实线,2虚线,3点线,4点加短虚线,5长虚线,6点加长虚线
+
+#分离：趋势、季节分解
+data1_components<-decompose(data1)
+plot(data1_components)
+
+#平稳性判断
+#自相关函数
+acf(data1)
+acf(data1,main="自相关图",xlab="滞后阶数")
+#偏自相关
+pacf(data1)
+#平稳性判断之单位根检验
+library(tseries)
+adf.test(data1)
+#P值如果小于0.05，拒绝x是原假设（注：原假设为非平稳），即可以认为x是平稳的。
+
+#对数变换
+plot(log10(data1),ylab="Log(tractor price)")
+adf.test(log10(data1))
+#仍然不平稳
+
+#差分
+adf.test(diff(data1))
+adf.test(diff(diff(data1)))
+#绘制差异系列
+plot(diff(diff(data1)),ylab="difference tractor price")
+
+#二阶差分之后
+acf(diff(diff(data1)))
+pacf(diff(diff(data1)))
+
+#预测
+library(forecast)
+#install.packages("forecast")
+data1_future<-auto.arima(data1)
+summary(data1_future)
+#|系数/se| > 1.96 即 95％的置信度
+data1_arima<-forecast(data1_future,h=30)
+#模型评价
+qqnorm(data1_arima$residuals)
+qqline(data1_arima$residuals)
+Box.test(data1_arima$residuals)#P值<0.05残差非白噪声，大于则提取出了,建模成功。
+plot(data1_arima)
+#蓝线是预测，深灰色是80%置信区间，浅灰色是95%
+
+#平滑
+dataylhotw<-HoltWinters(datayl)
+dataylhotw
+plot(dataylhotw)
+dataylhotwfu <- forecast:::forecast.HoltWinters(dataylhotw, h=12)
+plot(dataylhotwfu)
+dataylhotwfu
+#require(forecast)
+#dataylhotwfu <- forecast.HoltWinters(dataylhotw, h=48)
+Box.test(dataylhotwfu)
+#效果不好，指数平滑试试，gamma为0，不用指数平滑
+#dataylhotw1<-HoltWinters(log(datayl))
+#dataylhotwfu1 <- forecast:::forecast.HoltWinters(dataylhotw1, h=12)
+#Box.test(dataylhotwfu1)
+#效果仍旧不好
